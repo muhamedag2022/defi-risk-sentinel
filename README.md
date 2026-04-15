@@ -275,4 +275,4 @@ defi-risk-sentinel/
 
 ## 📄 License
 
-MIT License — built for AVE Claw Hackathon 2026
+MIT License — built for AVE Claw Hackathon 2026  

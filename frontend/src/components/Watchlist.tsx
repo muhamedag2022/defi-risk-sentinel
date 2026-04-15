@@ -260,7 +260,7 @@ export default function Watchlist({ onSelect, addItem, onAlert, persistedItems, 
 
   // ── WebSocket ──
   useEffect(() => {
-    ws.current = new WebSocket('ws://localhost:8000/ws/watchlist')
+    ws.current = new WebSocket('wss://defi-risk-sentinel-production.up.railway.app/ws/watchlist')
     ws.current.onopen = () => {
       setConnected(true)
       const initial = (persistedItems || []).map(p => p.address + '-' + p.chain)

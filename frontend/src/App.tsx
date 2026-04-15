@@ -185,7 +185,7 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
     setError('')
     setTokens([])
     try {
-      const res  = await fetch('http://localhost:8000/api/wallet/tokens?wallet=' + encodeURIComponent(wallet.trim()) + '&chain=' + chain)
+      const res  = await fetch('https://defi-risk-sentinel-production.up.railway.app/api/wallet/tokens?wallet=' + encodeURIComponent(wallet.trim()) + '&chain=' + chain)
       const data = await res.json()
       if (data.error) setError(data.error)
       else {
@@ -355,7 +355,7 @@ function AlertsTab({
     setTesting(true)
     setTestMsg('')
     try {
-      const r    = await fetch(`http://localhost:8000/api/telegram/test?chat_id=${encodeURIComponent(id)}`, { method: 'POST' })
+      const r    = await fetch(`https://defi-risk-sentinel-production.up.railway.app/api/telegram/test?chat_id=${encodeURIComponent(id)}`, { method: 'POST' })
       const data = await r.json()
       setTestMsg(data.success ? '✅ Message sent! Check Telegram.' : '❌ Failed: ' + (data.error || 'Unknown error'))
     } catch {

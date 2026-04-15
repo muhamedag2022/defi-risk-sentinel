@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const BASE = 'http://localhost:8000'
+const BASE = 'https://defi-risk-sentinel-production.up.railway.app'
 
 export const api = {
   search:  (keyword: string, chain?: string) =>
