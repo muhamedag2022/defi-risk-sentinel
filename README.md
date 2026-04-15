@@ -21,10 +21,16 @@ DeFi Risk Sentinel is a **real-time on-chain intelligence platform** that helps 
 
 ## 🚀 Live Demo
 
-```
-Backend:  http://localhost:8000
-Frontend: http://localhost:5173
-API Docs: http://localhost:8000/docs
+[![Watch Demo](https://img.shields.io/badge/▶%20Watch-Demo%20Video-red?style=for-the-badge&logo=youtube)](https://youtu.be/qCIO9hwI3rc)
+[![Live App](https://img.shields.io/badge/🌐%20Live-App%20on%20Vercel-000000?style=for-the-badge&logo=vercel)](https://defi-risk-sentinel.vercel.app/)
+
+| Resource | Link |
+|----------|------|
+| 🎬 **Demo Video** | [Watch on YouTube](https://youtu.be/qCIO9hwI3rc) |
+| 🌐 **Live Application** | [defi-risk-sentinel.vercel.app](https://defi-risk-sentinel.vercel.app/) |
+| 📖 **API Docs (Swagger)** | [railway.app/docs](https://defi-risk-sentinel-production.up.railway.app/docs) |
+
+> **Try it now:** Open the Live App and search any BSC token like "TRADOOR" or "ARIA".
 ```
 
 ---
