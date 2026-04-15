@@ -60,7 +60,7 @@ export default function PriceChart({ chain, address }: Props) {
             />
             <Tooltip
               contentStyle={{ background: '#1a1a2e', border: '1px solid #333', fontSize: 12 }}
-              formatter={(v: number) => ['$' + v.toPrecision(6), 'Price']}
+              formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Price']}
             />
             <Area
               type='monotone'
