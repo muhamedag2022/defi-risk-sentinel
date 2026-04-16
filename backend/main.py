@@ -8,7 +8,7 @@ import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
+import asyncio
 from core.risk_engine import analyze_risk
 
 load_dotenv()
@@ -255,36 +255,45 @@ async def watchlist_stream(websocket: WebSocket):
             ping_timeout=10
         ) as ave_ws:
 
-            async def listen_ave():
-                while True:
-                    msg  = await ave_ws.recv()
-                    data = json.loads(msg)
-                    if data.get("result", {}).get("topic") == "price":
-                        prices = data["result"].get("prices", [])
-                        for p in prices:
-                            change = float(p.get("price_change", 0))
-                            alert  = None
-                            
-                            # تحديد نوع التنبيه
-                            if change <= -10:
-                                alert = {"type": "DUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
-                            elif change >= 20:
-                                alert = {"type": "PUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
-                            
-                            if alert:
-                                target_chat_id = "5014111239" 
-                                
-                                await telegram_alert(
-                                    chat_id=target_chat_id,
-                                    symbol=alert["symbol"],
-                                    alert_type=alert["type"],
-                                    change=alert["change"],
-                                    price=float(alert["price"])
-                                )
-                                print(f"DEBUG: Telegram alert sent for {alert['symbol']}")
+async def listen_ave():
+    while True:
+        try:
+            msg = await ave_ws.recv()
+            data = json.loads(msg)
+            
+            if data.get("result", {}).get("topic") == "price":
+                prices = data["result"].get("prices", [])
+                current_alert = None 
 
-                            await websocket.send_text(json.dumps({"prices": prices, "alert": alert}))
-       
+                for p in prices:
+                    change = float(p.get("price_change", 0))
+                    
+                    if change <= -10 or change >= 20:
+                        alert_type = "DUMP" if change <= -10 else "PUMP"
+                        current_alert = {
+                            "type": alert_type, 
+                            "symbol": p.get("target_token"), 
+                            "change": change, 
+                            "price": p.get("uprice")
+                        }
+                        
+                        asyncio.create_task(telegram_alert(
+                            chat_id="5014111239",
+                            symbol=current_alert["symbol"],
+                            alert_type=current_alert["type"],
+                            change=current_alert["change"],
+                            price=float(current_alert["price"])
+                        ))
+
+                await websocket.send_text(json.dumps({
+                    "prices": prices, 
+                    "alert": current_alert
+                }))
+        
+        except Exception as e:
+            print(f"WebSocket Loop Error: {e}")
+            await asyncio.sleep(1) 
+
             async def listen_client():
                 while True:
                     msg = await websocket.receive_text()
