@@ -24,17 +24,26 @@ export default function RiskSimulator({ report }: Props) {
     setLoading(true)
     setError('')
     setResult(null)
+    
+    const BACKEND_URL = "https://defi-risk-sentinel-production.up.railway.app";
+
     try {
-      const res = await fetch('/api/ai/simulate', {
+      const res = await fetch(`${BACKEND_URL}/api/ai/simulate`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_data: report, investment_usd: parseFloat(investment), scenario }),
+        body: JSON.stringify({ 
+            token_data: report, 
+            investment_usd: parseFloat(investment), 
+            scenario 
+        }),
       })
+      
       const data = await res.json()
       if (data.error) setError(data.error)
       else setResult(data)
-    } catch {
-      setError('Failed to run simulation')
+    } catch (err) {
+      setError('Failed to run simulation. Check console for details.')
+      console.error(err)
     } finally {
       setLoading(false)
     }
