@@ -257,55 +257,73 @@ async def watchlist_stream(websocket: WebSocket):
 
             async def listen_ave():
                 while True:
-                    msg  = await ave_ws.recv()
-                    data = json.loads(msg)
-                    if data.get("result", {}).get("topic") == "price":
-                        prices = data["result"].get("prices", [])
-                        for p in prices:
-                            change = float(p.get("price_change", 0))
-                            alert  = None
-                            
-                            if change <= -10:
-                                alert = {"type": "DUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
-                            elif change >= 20:
-                                alert = {"type": "PUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
-                            
-                            if alert:
-                                target_chat_id = "5014111239" 
-                                
-                                await telegram_alert(
-                                    chat_id=target_chat_id,
-                                    symbol=alert["symbol"],
-                                    alert_type=alert["type"],
-                                    change=alert["change"],
-                                    price=float(alert["price"])
-                                )
-                                print(f"DEBUG: Telegram alert sent for {alert['symbol']}")
+                    try:
+                        msg = await ave_ws.recv()
+                        data = json.loads(msg)
+                        
+                        if data.get("result", {}).get("topic") == "price":
+                            prices = data["result"].get("prices", [])
 
-                            await websocket.send_text(json.dumps({"prices": prices, "alert": alert}))
-       
+                            current_alert = None 
+
+                            for p in prices:
+                                change = float(p.get("price_change", 0))
+                                
+                                if change <= -10 or change >= 20:
+                                    alert_type = "DUMP" if change <= -10 else "PUMP"
+                                    current_alert = {
+                                        "type": alert_type, 
+                                        "symbol": p.get("target_token"), 
+                                        "change": change, 
+                                        "price": p.get("uprice")
+                                    }
+                                    
+                                    asyncio.create_task(telegram_alert(
+                                        chat_id="5014111239",
+                                        symbol=current_alert["symbol"],
+                                        alert_type=current_alert["type"],
+                                        change=current_alert["change"],
+                                        price=float(current_alert["price"])
+                                    ))
+
+                            await websocket.send_text(json.dumps({
+                                "prices": prices, 
+                                "alert": current_alert  
+                            }))
+                            
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        break
+
             async def listen_client():
                 while True:
-                    msg = await websocket.receive_text()
-                    cmd = json.loads(msg)
-                    if cmd.get("action") == "subscribe":
-                        token_ids = cmd.get("token_ids", [])
-                        await ave_ws.send(json.dumps({
-                            "jsonrpc": "2.0", "method": "subscribe",
-                            "params": ["price", token_ids], "id": 1
-                        }))
-                    elif cmd.get("action") == "unsubscribe":
-                        token_ids = cmd.get("token_ids", [])
-                        await ave_ws.send(json.dumps({
-                            "jsonrpc": "2.0", "method": "unsubscribe",
-                            "params": ["price", token_ids], "id": 2
-                        }))
+                    try:
+                        msg = await websocket.receive_text()
+                        cmd = json.loads(msg)
+                        if cmd.get("action") == "subscribe":
+                            token_ids = cmd.get("token_ids", [])
+                            await ave_ws.send(json.dumps({
+                                "jsonrpc": "2.0", "method": "subscribe",
+                                "params": ["price", token_ids], "id": 1
+                            }))
+                        elif cmd.get("action") == "unsubscribe":
+                            token_ids = cmd.get("token_ids", [])
+                            await ave_ws.send(json.dumps({
+                                "jsonrpc": "2.0", "method": "unsubscribe",
+                                "params": ["price", token_ids], "id": 2
+                            }))
+                    except Exception as e:
+                        print(f"Error in client loop: {e}")
+                        break
 
             await asyncio.gather(listen_ave(), listen_client())
+
     except WebSocketDisconnect:
-        pass
-    except Exception:
-        await websocket.close()
+        print("Client disconnected")
+    except Exception as e:
+        print(f"Watchlist Stream Error: {e}")
+        if not websocket.client_state.name == "DISCONNECTED":
+            await websocket.close()
 
 # ── Portfolio ─────────────────────────────────────────────────────────────────
 

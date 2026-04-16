@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import SearchBar from './components/SearchBar'
 import TrendingTable from './components/TrendingTable'
 import RiskPanel from './components/RiskPanel'
@@ -6,11 +6,13 @@ import PriceChart from './components/PriceChart'
 import TradePanel from './components/TradePanel'
 import RiskSimulator from './components/RiskSimulator'
 import Watchlist from './components/Watchlist'
+import AiChat from './components/AiChat'
 import type { RiskReport } from './types'
 import { api } from './api'
 import { LayoutDashboard, Eye, Wallet, Bell } from 'lucide-react'
 import './App.css'
-import AiChat from './components/AiChat'
+
+const BASE = 'https://defi-risk-sentinel-production.up.railway.app'
 
 type Tab = 'dashboard' | 'watchlist' | 'portfolio' | 'alerts'
 
@@ -18,12 +20,68 @@ interface WatchItem { symbol: string; chain: string; address: string }
 interface Alert { type: string; symbol: string; change: number; time: string }
 
 export default function App() {
-  const [tab,      setTab]      = useState<Tab>('dashboard')
-  const [risk,     setRisk]     = useState<RiskReport | null>(null)
-  const [selected, setSelected] = useState<{ chain: string; address: string } | null>(null)
-  const [loading,  setLoading]  = useState(false)
-  const [watchAdd, setWatchAdd] = useState<WatchItem | null>(null)
-  const [alerts,   setAlerts]   = useState<Alert[]>([])
+  const [tab,            setTab]            = useState<Tab>('dashboard')
+  const [risk,           setRisk]           = useState<RiskReport | null>(null)
+  const [selected,       setSelected]       = useState<{ chain: string; address: string } | null>(null)
+  const [loading,        setLoading]        = useState(false)
+  const [watchAdd,       setWatchAdd]       = useState<WatchItem | null>(null)
+  const [alerts,         setAlerts]         = useState<Alert[]>([])
+  const [persistedItems, setPersistedItems] = useState<WatchItem[]>([])
+  const globalSocket = useRef<WebSocket | null>(null)
+
+  // ── Global WebSocket Radar — always listening regardless of active tab ──
+  useEffect(() => {
+    if (persistedItems.length === 0) return
+
+    // Close previous socket if exists
+    if (globalSocket.current) {
+      globalSocket.current.close()
+    }
+
+    const socket = new WebSocket(`${BASE.replace('https', 'wss')}/ws/watchlist`)
+
+    socket.onopen = () => {
+      const token_ids = persistedItems.map(p => p.address + '-' + p.chain)
+      socket.send(JSON.stringify({ action: 'subscribe', token_ids }))
+    }
+
+    socket.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (!data.alert) return
+
+        const alertPayload = data.alert
+        const item = persistedItems.find(
+          i => i.address.toLowerCase() === alertPayload.token?.toLowerCase()
+        )
+        if (!item) return
+
+        const newAlert: Alert = {
+          type:   alertPayload.type,
+          symbol: item.symbol,
+          change: alertPayload.change,
+          time:   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }
+
+        // Update alerts badge
+        setAlerts(prev => [newAlert, ...prev.slice(0, 49)])
+
+        // Auto-send Telegram if configured
+        const chatId = localStorage.getItem('tg_chat_id')
+        if (chatId) {
+          fetch(
+            `${BASE}/api/telegram/alert?chat_id=${encodeURIComponent(chatId)}&symbol=${encodeURIComponent(item.symbol)}&alert_type=${alertPayload.type}&change=${alertPayload.change}&price=${alertPayload.price || 0}`,
+            { method: 'POST' }
+          ).catch(() => {})
+        }
+      } catch {}
+    }
+
+    socket.onerror = () => {}
+    globalSocket.current = socket
+
+    return () => socket.close()
+  }, [persistedItems])
 
   const analyze = async (chain: string, address: string) => {
     setTab('dashboard')
@@ -39,8 +97,6 @@ export default function App() {
       setLoading(false)
     }
   }
-
-  const [persistedItems, setPersistedItems] = useState<WatchItem[]>([])
 
   const isWatched = persistedItems.some(i => i.address === selected?.address)
 
@@ -64,10 +120,10 @@ export default function App() {
   }
 
   const TABS = [
-    { id: 'dashboard' as Tab, label: 'Dashboard',  icon: <LayoutDashboard size={15} /> },
-    { id: 'watchlist' as Tab, label: 'Watchlist',  icon: <Eye size={15} /> },
-    { id: 'portfolio' as Tab, label: 'Portfolio',  icon: <Wallet size={15} /> },
-    { id: 'alerts'    as Tab, label: 'Alerts',     icon: <Bell size={15} />, badge: alerts.length },
+    { id: 'dashboard' as Tab, label: 'Dashboard', icon: <LayoutDashboard size={15} /> },
+    { id: 'watchlist' as Tab, label: 'Watchlist', icon: <Eye size={15} /> },
+    { id: 'portfolio' as Tab, label: 'Portfolio', icon: <Wallet size={15} /> },
+    { id: 'alerts'    as Tab, label: 'Alerts',    icon: <Bell size={15} />, badge: alerts.length },
   ]
 
   return (
@@ -124,7 +180,13 @@ export default function App() {
         )}
 
         {tab === 'watchlist' && (
-          <Watchlist onSelect={analyze} addItem={watchAdd} onAlert={onAlert} persistedItems={persistedItems} fullPage />
+          <Watchlist
+            onSelect={analyze}
+            addItem={watchAdd}
+            onAlert={onAlert}
+            persistedItems={persistedItems}
+            fullPage
+          />
         )}
 
         {tab === 'portfolio' && (
@@ -140,19 +202,21 @@ export default function App() {
   )
 }
 
+// ── Wallet Token Interface ────────────────────────────────────────────────────
+
 interface WalletToken {
-  address: string
-  symbol: string
-  chain: string
-  balance_usd: number
-  balance_amount: string
-  price_usd: number
+  address:           string
+  symbol:            string
+  chain:             string
+  balance_usd:       number
+  balance_amount:    string
+  price_usd:         number
   unrealized_profit: string
-  total_profit: string
-  total_profit_ratio: string
-  risk_score: number
-  risk_level: number
-  logo_url: string
+  total_profit:      string
+  total_profit_ratio:string
+  risk_score:        number
+  risk_level:        number
+  logo_url:          string
 }
 
 function getRiskLabel(score: number): { label: string; color: string } {
@@ -163,21 +227,23 @@ function getRiskLabel(score: number): { label: string; color: string } {
 }
 
 function fmtUsd(n: number): string {
-  if (n >= 1e12) return '$' + (n/1e12).toFixed(2) + 'T'
-  if (n >= 1e9)  return '$' + (n/1e9).toFixed(2)  + 'B'
-  if (n >= 1e6)  return '$' + (n/1e6).toFixed(2)  + 'M'
-  if (n >= 1e3)  return '$' + (n/1e3).toFixed(2)  + 'K'
+  if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T'
+  if (n >= 1e9)  return '$' + (n / 1e9).toFixed(2)  + 'B'
+  if (n >= 1e6)  return '$' + (n / 1e6).toFixed(2)  + 'M'
+  if (n >= 1e3)  return '$' + (n / 1e3).toFixed(2)  + 'K'
   return '$' + n.toFixed(2)
 }
 
+// ── Portfolio Tab ─────────────────────────────────────────────────────────────
+
 function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string) => void }) {
-  const [wallet,     setWallet]     = useState('')
-  const [chain,      setChain]      = useState('bsc')
-  const [tokens,     setTokens]     = useState<WalletToken[]>([])
-  const [totalUsd,   setTotalUsd]   = useState(0)
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState('')
-  const [sortBy,     setSortBy]     = useState<'value'|'risk'>('value')
+  const [wallet,   setWallet]   = useState('')
+  const [chain,    setChain]    = useState('bsc')
+  const [tokens,   setTokens]   = useState<WalletToken[]>([])
+  const [totalUsd, setTotalUsd] = useState(0)
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [sortBy,   setSortBy]   = useState<'value' | 'risk'>('value')
 
   const scan = async () => {
     if (!wallet.trim()) return
@@ -185,7 +251,7 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
     setError('')
     setTokens([])
     try {
-      const res  = await fetch('https://defi-risk-sentinel-production.up.railway.app/api/wallet/tokens?wallet=' + encodeURIComponent(wallet.trim()) + '&chain=' + chain)
+      const res  = await fetch(`${BASE}/api/wallet/tokens?wallet=${encodeURIComponent(wallet.trim())}&chain=${chain}`)
       const data = await res.json()
       if (data.error) setError(data.error)
       else {
@@ -203,8 +269,8 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
     sortBy === 'value' ? b.balance_usd - a.balance_usd : b.risk_score - a.risk_score
   )
 
-  const dangerCount  = tokens.filter(t => t.risk_score >= 60).length
-  const highestRisk  = tokens.reduce((max, t) => t.risk_score > max ? t.risk_score : max, 0)
+  const dangerCount = tokens.filter(t => t.risk_score >= 60).length
+  const highestRisk = tokens.reduce((max, t) => t.risk_score > max ? t.risk_score : max, 0)
 
   return (
     <div className='portfolio-page'>
@@ -279,19 +345,38 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
 
           <div className='portfolio-grid'>
             {sorted.map((t, i) => {
-              const risk = getRiskLabel(t.risk_score)
+              const risk   = getRiskLabel(t.risk_score)
               const profit = parseFloat(t.unrealized_profit || '0')
               return (
-                <div key={i} className='ptc-card' style={{ borderColor: t.risk_score >= 60 ? risk.color + '44' : '' }} onClick={() => onSelect(t.chain, t.address)}>
+                <div
+                  key={i}
+                  className='ptc-card'
+                  style={{ borderColor: t.risk_score >= 60 ? risk.color + '44' : '' }}
+                  onClick={() => onSelect(t.chain, t.address)}
+                >
                   <div className='ptc-top'>
                     <div className='ptc-left'>
-                      {t.logo_url && <img src={t.logo_url} alt='' className='token-logo-sm' onError={e => { (e.currentTarget as HTMLImageElement).style.display='none' }} />}
+                      {t.logo_url && (
+                        <img
+                          src={t.logo_url}
+                          alt=''
+                          className='token-logo-sm'
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                        />
+                      )}
                       <div>
                         <div className='ptc-symbol'>{t.symbol}</div>
                         <div className='ptc-chain'>{t.chain.toUpperCase()}</div>
                       </div>
                     </div>
-                    <div className='ptc-risk-badge' style={{ background: risk.color + '22', color: risk.color, border: '1px solid ' + risk.color + '44' }}>
+                    <div
+                      className='ptc-risk-badge'
+                      style={{
+                        background: risk.color + '22',
+                        color:      risk.color,
+                        border:     '1px solid ' + risk.color + '44',
+                      }}
+                    >
                       {risk.label} {t.risk_score}
                     </div>
                   </div>
@@ -301,7 +386,11 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
                   <div className='ptc-stats'>
                     <div className='ptc-stat-row'>
                       <span>Price</span>
-                      <span>{t.price_usd > 0 ? '$' + (t.price_usd < 0.001 ? t.price_usd.toExponential(2) : t.price_usd.toPrecision(4)) : '—'}</span>
+                      <span>
+                        {t.price_usd > 0
+                          ? '$' + (t.price_usd < 0.001 ? t.price_usd.toExponential(2) : t.price_usd.toPrecision(4))
+                          : '—'}
+                      </span>
                     </div>
                     <div className='ptc-stat-row'>
                       <span>Unrealized P&L</span>
@@ -311,7 +400,9 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
                     </div>
                     <div className='ptc-stat-row'>
                       <span>Total Profit</span>
-                      <span>{t.total_profit !== '--' ? '$' + parseFloat(t.total_profit || '0').toFixed(2) : '—'}</span>
+                      <span>
+                        {t.total_profit !== '--' ? '$' + parseFloat(t.total_profit || '0').toFixed(2) : '—'}
+                      </span>
                     </div>
                   </div>
 
@@ -326,6 +417,8 @@ function PortfolioTab({ onSelect }: { onSelect: (chain: string, address: string)
   )
 }
 
+// ── Alerts Tab ────────────────────────────────────────────────────────────────
+
 function AlertsTab({
   alerts,
   onClear,
@@ -338,7 +431,6 @@ function AlertsTab({
   const [testing, setTesting] = useState(false)
   const [testMsg, setTestMsg] = useState('')
 
-  //  chat_id
   const saveChatId = () => {
     if (!chatId.trim()) return
     localStorage.setItem('tg_chat_id', chatId.trim())
@@ -348,14 +440,13 @@ function AlertsTab({
     setTimeout(() => setTestMsg(''), 3000)
   }
 
-  // 
   const testConnection = async () => {
     const id = saved || chatId.trim()
     if (!id) { setTestMsg('⚠️ Enter your Chat ID first'); return }
     setTesting(true)
     setTestMsg('')
     try {
-      const r    = await fetch(`https://defi-risk-sentinel-production.up.railway.app/api/telegram/test?chat_id=${encodeURIComponent(id)}`, { method: 'POST' })
+      const r    = await fetch(`${BASE}/api/telegram/test?chat_id=${encodeURIComponent(id)}`, { method: 'POST' })
       const data = await r.json()
       setTestMsg(data.success ? '✅ Message sent! Check Telegram.' : '❌ Failed: ' + (data.error || 'Unknown error'))
     } catch {
@@ -365,15 +456,10 @@ function AlertsTab({
     }
   }
 
-  // Chat ID
-  const howToGetId = () => {
-    window.open('https://t.me/userinfobot', '_blank')
-  }
-
   return (
     <div className='alerts-page'>
 
-      {/* ── Telegram Setup Card ── */}
+      {/* Telegram Setup Card */}
       <div className='tg-setup-card'>
         <div className='tg-setup-header'>
           <span className='tg-icon'>✈️</span>
@@ -390,7 +476,6 @@ function AlertsTab({
         </div>
 
         {saved ? (
-          // ── Already configured ──
           <div className='tg-configured'>
             <div className='tg-chat-display'>
               <span style={{ color: '#888', fontSize: '0.82rem' }}>Chat ID:</span>
@@ -404,7 +489,6 @@ function AlertsTab({
             </button>
           </div>
         ) : (
-          // ── Setup form ──
           <div className='tg-setup-form'>
             <div className='tg-steps'>
               <div className='tg-step'>
@@ -413,14 +497,13 @@ function AlertsTab({
               </div>
               <div className='tg-step'>
                 <span className='tg-step-num'>2</span>
-                <span>Get your Chat ID from <button className='tg-link-btn' onClick={howToGetId}>@userinfobot</button></span>
+                <span>Get your Chat ID from <button className='tg-link-btn' onClick={() => window.open('https://t.me/userinfobot', '_blank')}>@userinfobot</button></span>
               </div>
               <div className='tg-step'>
                 <span className='tg-step-num'>3</span>
                 <span>Enter your Chat ID below</span>
               </div>
             </div>
-
             <div className='tg-input-row'>
               <input
                 className='portfolio-input'
@@ -445,7 +528,7 @@ function AlertsTab({
         )}
       </div>
 
-      {/* ── Alert History ── */}
+      {/* Alert History */}
       <div className='alerts-header'>
         <h2 className='page-title'>Alert History</h2>
         {alerts.length > 0 && (
