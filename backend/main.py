@@ -264,12 +264,27 @@ async def watchlist_stream(websocket: WebSocket):
                         for p in prices:
                             change = float(p.get("price_change", 0))
                             alert  = None
+                            
+                            # تحديد نوع التنبيه
                             if change <= -10:
-                                alert = {"type": "DUMP", "token": p.get("target_token"), "change": change, "price": p.get("uprice")}
+                                alert = {"type": "DUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
                             elif change >= 20:
-                                alert = {"type": "PUMP", "token": p.get("target_token"), "change": change, "price": p.get("uprice")}
-                            await websocket.send_text(json.dumps({"prices": prices, "alert": alert}))
+                                alert = {"type": "PUMP", "symbol": p.get("target_token"), "change": change, "price": p.get("uprice")}
+                            
+                            if alert:
+                                target_chat_id = "5014111239" 
+                                
+                                await telegram_alert(
+                                    chat_id=target_chat_id,
+                                    symbol=alert["symbol"],
+                                    alert_type=alert["type"],
+                                    change=alert["change"],
+                                    price=float(alert["price"])
+                                )
+                                print(f"DEBUG: Telegram alert sent for {alert['symbol']}")
 
+                            await websocket.send_text(json.dumps({"prices": prices, "alert": alert}))
+       
             async def listen_client():
                 while True:
                     msg = await websocket.receive_text()
