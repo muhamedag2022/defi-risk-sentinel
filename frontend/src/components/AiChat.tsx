@@ -48,7 +48,7 @@ export default function AiChat({ report }: { report: RiskReport }) {
     setMessages(prev => [...prev, { role: 'user', text: question }])
     setLoading(true)
     try {
-      const r = await fetch('http://localhost:8000/api/ai/chat', {
+      const r = await fetch('https://defi-risk-sentinel-production.up.railway.app/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, token_data: report }),

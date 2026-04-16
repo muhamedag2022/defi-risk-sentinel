@@ -80,7 +80,7 @@ function CompareModal({ items, onClose }: { items: WatchItem[]; onClose: () => v
           items.map(async (item) => {
             try {
               const r = await fetch(
-                `http://localhost:8000/api/risk/${item.chain}/${item.address}`
+                `https://defi-risk-sentinel-production.up.railway.app/api/risk/${item.chain}/${item.address}`
               )
               const d = await r.json()
               return {
